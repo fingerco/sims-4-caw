@@ -2,7 +2,7 @@ import os
 import ctypes
 import ctypes.util
 import subprocess
-from .errors import CannotAttachException, CannotReadException, InvalidAddressException
+from .errors import CannotAttachException, CannotReadException, CannotWriteException, InvalidAddressException
 from .Region import Region
 
 libc = ctypes.CDLL(ctypes.util.find_library('c'))
@@ -103,6 +103,19 @@ class MacOSX:
         if ret != 0:
             raise CannotReadException("mach_vm_read returned: {}".format(ret))
 
-        buf=ctypes.string_at(pdata.value, data_cnt.value)
+        buf = ctypes.string_at(pdata.value, data_cnt.value)
         libc.vm_deallocate(self.my_task, pdata, data_cnt)
-        return buf
+        return bytearray(buf)
+
+
+    def write_bytes(self, address, data, data_cnt):
+        pdata = ctypes.c_void_p(0)
+        data_cnt = ctypes.c_uint32(0)
+
+        longptr = ctypes.POINTER(ctypes.c_ulong)
+        data_ptr = ctypes.cast(data, longptr)
+
+        ret = libc.mach_vm_write(self.task, ctypes.c_ulonglong(address), data_ptr, len(data))
+
+        if ret != 0:
+            raise CannotWriteException("mach_vm_write returned: {}".format(ret))

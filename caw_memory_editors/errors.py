@@ -4,5 +4,8 @@ class CannotAttachException(Exception):
 class CannotReadException(Exception):
     pass
 
+class CannotWriteException(Exception):
+    pass
+
 class InvalidAddressException(Exception):
     pass
