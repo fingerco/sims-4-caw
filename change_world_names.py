@@ -1,43 +1,58 @@
 import ctypes
 import ctypes.util
 import re
-from caw_memory_editors import MacOSX, errors
+import struct
+from caw_memory_editors import MacOSX, CannotReadException
 
-BASE_WORLD_NAME = "Newcrest".encode('utf-16be')
-REPLACE_WORLD_NAME = "Piecrust".encode('utf-16be')
+BASE_WORLD_NAME = "Von Haunt Estate".encode('utf-8')
+REPLACE_WORLD_NAME = "Apple Fritters are tasty".encode('utf-8')
 
 class ChangeWorldNames:
     def __init__(self, process):
         self.process = process
-        self.mem_regions = process.all_regions()
 
     def run(self):
-        base_world = self.find_a_world()
-        print(base_world)
+        # self.find_lots()
 
-    def find_a_world(self):
-        world_name_addrs = []
-        for region in self.mem_regions:
-            try:
-                region_bytes = self.process.read_bytes(region.address.value, bytes=region.mapsize.value)
-            except errors.CannotReadException:
-                continue
+        a = self.process.allocate_bytes(len(BASE_WORLD_NAME)+1)
+        b = self.process.allocate_bytes(len(REPLACE_WORLD_NAME)+1)
+        self.process.write_bytes(a.value, ctypes.create_string_buffer(BASE_WORLD_NAME + b'\x00'), len(BASE_WORLD_NAME)+1)
+        self.process.write_bytes(b.value, ctypes.create_string_buffer(REPLACE_WORLD_NAME + b'\x00'), len(REPLACE_WORLD_NAME)+1)
 
-            found = None
-            last_found = -1
-            while found != -1:
-                found = region_bytes.find(BASE_WORLD_NAME, last_found+1)
-                if found != -1:
-                    world_name_addrs.append(region.address.value + found)
-                    last_found = found
+        print(a, a.value, self.process.read_bytes(a.value, bytes=8))
+        print(b, b.value, self.process.read_bytes(b.value, bytes=8))
 
-        return self.filter_to_relevant_worlds(world_name_addrs)
+        b.value = a.value
 
-    def filter_to_relevant_worlds(self, world_name_addrs):
-        for addr in world_name_addrs:
-            print("\n--1-----\n{}\n---1-----\n".format(self.process.read_bytes(addr, bytes=len(BASE_WORLD_NAME)).decode('utf-16be')))
-            self.process.write_bytes(addr, ctypes.create_string_buffer(REPLACE_WORLD_NAME), len(REPLACE_WORLD_NAME))
-            print("\n---2----\n{}\n---2-----\n".format(self.process.read_bytes(addr, bytes=len(BASE_WORLD_NAME)).decode('utf-16be')))
+        print(a, a.value, self.process.read_bytes(a.value, bytes=8))
+        print(b, b.value, self.process.read_bytes(b.value, bytes=8))
+
+    def find_lots(self):
+        potential_lot_addrs = self.process.find_in_memory(BASE_WORLD_NAME)
+        return self.filter_to_relevant_lots(potential_lot_addrs)
+
+    def filter_to_relevant_lots(self, lot_addrs):
+        mem_regions = self.process.all_regions()
+
+        replace_addr = self.process.allocate_bytes(len(REPLACE_WORLD_NAME)+1)
+        self.process.write_bytes(replace_addr.value, ctypes.create_string_buffer(REPLACE_WORLD_NAME + b'\x00'), len(REPLACE_WORLD_NAME)+1)
+        replace_addr_bytes = struct.pack('L', replace_addr.value)
+
+        refs_to_name = []
+        for addr in lot_addrs:
+            print(addr)
+            addr_bytes = struct.pack('L', addr)
+            refs_to_name += self.process.find_in_memory(addr_bytes, mem_regions=mem_regions)
+            print("HMMM: " + str(struct.pack('L', addr)) + " - " + str(len(struct.pack('L', addr))) + " - " + str(refs_to_name))
+
+        print(refs_to_name)
+        print(replace_addr_bytes)
+        print(len(replace_addr_bytes))
+
+        for ref_addr in refs_to_name:
+            print("\n--1-----\n{}\n---1-----\n".format(self.process.read_bytes(ref_addr, bytes=len(replace_addr_bytes))))
+            self.process.write_bytes(ref_addr, ctypes.create_string_buffer(replace_addr_bytes), len(replace_addr_bytes))
+            print("\n---2----\n{}\n---2-----\n".format(self.process.read_bytes(ref_addr, bytes=len(replace_addr_bytes))))
 
 
 sims_process = MacOSX("The Sims 4")

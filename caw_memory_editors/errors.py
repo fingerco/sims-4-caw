@@ -7,5 +7,8 @@ class CannotReadException(Exception):
 class CannotWriteException(Exception):
     pass
 
+class CannotAllocateException(Exception):
+    pass
+
 class InvalidAddressException(Exception):
     pass

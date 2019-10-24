@@ -2,7 +2,7 @@ import os
 import ctypes
 import ctypes.util
 import subprocess
-from .errors import CannotAttachException, CannotReadException, CannotWriteException, InvalidAddressException
+from .errors import CannotAttachException, CannotReadException, CannotWriteException, CannotAllocateException, InvalidAddressException
 from .Region import Region
 
 libc = ctypes.CDLL(ctypes.util.find_library('c'))
@@ -21,7 +21,7 @@ class vm_region_basic_info_64(ctypes.Structure):
 ]
 
 VM_REGION_BASIC_INFO_64    = 9
-VM_REGION_BASIC_INFO_COUNT_64 = ctypes.sizeof(vm_region_basic_info_64) / 4
+VM_REGION_BASIC_INFO_COUNT_64 = int(ctypes.sizeof(vm_region_basic_info_64) / 4)
 
 VM_PROT_READ    = 1
 VM_PROT_WRITE    = 2
@@ -61,6 +61,27 @@ class MacOSX:
                 break
 
         return regions
+
+    def find_in_memory(self, some_bytes, mem_regions=None):
+        if mem_regions is None:
+            mem_regions = self.all_regions()
+
+        found_addrs = []
+        for region in mem_regions:
+            try:
+                region_bytes = self.read_bytes(region.address.value, bytes=region.mapsize.value)
+            except CannotReadException:
+                continue
+
+            found = None
+            last_found = -1
+            while found != -1:
+                found = region_bytes.find(some_bytes, last_found+1)
+                if found != -1:
+                    found_addrs.append(region.address.value + found)
+                    last_found = found
+
+        return found_addrs
 
 
     def get_region(self, region_num=0):
@@ -109,13 +130,19 @@ class MacOSX:
 
 
     def write_bytes(self, address, data, data_cnt):
-        pdata = ctypes.c_void_p(0)
-        data_cnt = ctypes.c_uint32(0)
-
         longptr = ctypes.POINTER(ctypes.c_ulong)
         data_ptr = ctypes.cast(data, longptr)
 
-        ret = libc.mach_vm_write(self.task, ctypes.c_ulonglong(address), data_ptr, len(data))
+        ret = libc.mach_vm_write(self.task, ctypes.c_ulonglong(address), data_ptr, data_cnt)
 
         if ret != 0:
             raise CannotWriteException("mach_vm_write returned: {}".format(ret))
+
+    def allocate_bytes(self, size, anywhere = True):
+        pdata = ctypes.c_void_p(0)
+
+        ret = libc.mach_vm_allocate(self.task, ctypes.pointer(pdata), size, 1 if anywhere else 0)
+        if ret != 0:
+            raise CannotAllocateException("mach_vm_allocate returned: {}".format(ret))
+
+        return pdata
